@@ -268,6 +268,57 @@ class FlightRadar24API(object):
         response = APIRequest(Core.most_tracked_url, headers = Core.json_headers)
         return response.get_content()
 
+    def get_flight_history(self, flight_number: str, limit: int = 100) -> List[Dict]:
+        """
+        Return the flight history for a specific flight number.
+        
+        :param flight_number: Flight number to retrieve history for.
+        :param limit: Number of records to retrieve per page. Default is 100.
+        """
+        base_url = "https://api.flightradar24.com/common/v1/flight/list.json"
+        page = 1
+        timestamp = None
+        older_then_flight_id = None
+        flight_history = []
+
+        while True:
+            # Build the parameters for the request
+            params = {
+                "query": flight_number,
+                "fetchBy": "flight",
+                "page": str(page),
+                "pk": "",
+                "limit": str(limit)
+            }
+            if self.__login_data is not None:
+                params["token"] = self.__login_data["cookies"]["_frPl"]
+
+            if timestamp:
+                params["timestamp"] = str(timestamp)
+            if older_then_flight_id:
+                params["olderThenFlightId"] = older_then_flight_id
+
+            # Send the request
+            response = APIRequest(base_url, params=params, headers=Core.json_headers).get_content()
+
+            # Check if there are flights in the response
+            flights = response.get("result", {}).get("response", {}).get("data", [])
+            if not flights:
+                break
+
+            flight_history.extend(flights)
+
+            # Prepare for the next page
+            page += 1
+            # Usually, APIs will provide some sort of cursor or token for pagination
+            # For this API, it looks like we need to use the timestamp 
+            # and olderThenFlightId of the last flight
+            last_flight = flights[-1]
+            timestamp = last_flight.get("time", {}).get("scheduled", {}).get("departure", None)
+            older_then_flight_id = last_flight.get("identification", {}).get("id", None)
+
+        return flight_history
+   
     def is_logged_in(self) -> bool:
         """
         Check if the user is logged into the FlightRadar24 account.
