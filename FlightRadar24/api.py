@@ -268,18 +268,20 @@ class FlightRadar24API(object):
         response = APIRequest(Core.most_tracked_url, headers = Core.json_headers)
         return response.get_content()
 
-    def get_flight_history(self, flight_number: str, limit: int = 100) -> List[Dict]:
+    def get_flight_history(self, flight_number: str, date_timestamp: int) -> Dict:
         """
-        Return the flight history for a specific flight number.
-        
+        Return the flight record for a specific flight number on a specific date.
+
         :param flight_number: Flight number to retrieve history for.
-        :param limit: Number of records to retrieve per page. Default is 100.
+        :param date_timestamp: Specific date in Unix timestamp format (start of the day) to retrieve flight for.
         """
         base_url = "https://api.flightradar24.com/common/v1/flight/list.json"
         page = 1
         timestamp = None
         older_then_flight_id = None
-        flight_history = []
+
+        # Define the range of the given day in Unix timestamps
+        end_date_timestamp = date_timestamp + 86400  # 86400 seconds in a day
 
         while True:
             # Build the parameters for the request
@@ -288,7 +290,7 @@ class FlightRadar24API(object):
                 "fetchBy": "flight",
                 "page": str(page),
                 "pk": "",
-                "limit": str(limit)
+                "limit": "100",  # Limiting to 100 as we're only looking for the first match
             }
             if self.__login_data is not None:
                 params["token"] = self.__login_data["cookies"]["_frPl"]
@@ -299,25 +301,36 @@ class FlightRadar24API(object):
                 params["olderThenFlightId"] = older_then_flight_id
 
             # Send the request
-            response = APIRequest(base_url, params=params, headers=Core.json_headers).get_content()
+            response = APIRequest(
+                base_url, params=params, headers=Core.json_headers
+            ).get_content()
 
             # Check if there are flights in the response
             flights = response.get("result", {}).get("response", {}).get("data", [])
             if not flights:
                 break
 
-            flight_history.extend(flights)
+            # Check each flight's date and return if matched
+            for flight in flights:
+                flight_timestamp = (
+                    flight.get("time", {}).get("scheduled", {}).get("departure", None)
+                )
+                if (
+                    flight_timestamp
+                    and date_timestamp <= flight_timestamp < end_date_timestamp
+                ):
+                    return flight
 
             # Prepare for the next page
             page += 1
-            # Usually, APIs will provide some sort of cursor or token for pagination
-            # For this API, it looks like we need to use the timestamp 
-            # and olderThenFlightId of the last flight
             last_flight = flights[-1]
-            timestamp = last_flight.get("time", {}).get("scheduled", {}).get("departure", None)
+            timestamp = (
+                last_flight.get("time", {}).get("scheduled", {}).get("departure", None)
+            )
             older_then_flight_id = last_flight.get("identification", {}).get("id", None)
 
-        return flight_history
+        return None
+
    
     def is_logged_in(self) -> bool:
         """
